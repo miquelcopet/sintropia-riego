@@ -6,6 +6,7 @@ const dateDaysAgo=n=>{const d=new Date();d.setDate(d.getDate()-n);return d.toISO
 const seed=()=>{const species=[{id:"sp-olivo",name:"Olivo",yellowDays:7,redDays:10},{id:"sp-limon",name:"Limonero",yellowDays:5,redDays:7},{id:"sp-almendro",name:"Almendro",yellowDays:8,redDays:12}];const row={id:"row-01",name:"Línea 01",plot:"Parcela 1",speciesId:"sp-olivo",treeCount:30};const trees=Array.from({length:30},(_,i)=>({id:uid(),rowId:row.id,number:i+1,name:"Olivo "+(i+1),speciesId:"sp-olivo",lastWatered:i<14?today():dateDaysAgo([8,9,11,12,5,3,2,1,6,4,10,13,7,8,2,4][(i-14)%16]||3),yellowDays:null,redDays:null,active:true}));const events=trees.slice(0,14).map(t=>({id:uid(),treeId:t.id,date:today(),notes:"Riego de ejemplo"}));return{version:1,species,rows:[row],trees,events,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}};
 let db=load();
 let linkedHandle=null, deferredInstall=null, activeRowId=null;
+
 function load(){try{const x=JSON.parse(localStorage.getItem(KEY));if(x&&x.version===1)return x}catch(e){}return seed()}
 function save(){db.updatedAt=new Date().toISOString();localStorage.setItem(KEY,JSON.stringify(db));$("#storageStatus").textContent=`Guardado local automático · ${db.trees.length} árboles · última actualización ${new Date(db.updatedAt).toLocaleString("es-ES")}`;render()}
 function speciesFor(t){return db.species.find(s=>s.id===t.speciesId)||{yellowDays:7,redDays:10,name:"Sin especie"}}
@@ -14,28 +15,382 @@ function status(t){const s=speciesFor(t),d=daysSince(t),y=t.yellowDays??s.yellow
 function statusLabel(s){return s==="red"?"Urgente":s==="yellow"?"Atención":"En verde"}
 function treeTitle(t){const row=db.rows.find(r=>r.id===t.rowId);return `${t.name||speciesFor(t).name+" "+t.number} · ${row?.name||"Sin hilera"}`}
 function ageLabel(t){const d=daysSince(t);return d===Infinity?"Sin riego registrado":d===0?"Regado hoy":`Hace ${d} días`}
-function render(){renderDashboard();renderRows();renderSpecies();$("#treeCount").textContent=`${db.trees.filter(t=>t.active!==false).length} árboles`;$("#storageStatus").textContent=`Guardado local automático · ${db.trees.length} árboles · última actualización ${new Date(db.updatedAt||Date.now()).toLocaleString("es-ES")}`}
-function renderDashboard(){const active=db.trees.filter(t=>t.active!==false),counts={green:0,yellow:0,red:0};active.forEach(t=>counts[status(t)]++);$("#greenCount").textContent=counts.green;$("#yellowCount").textContent=counts.yellow;$("#redCount").textContent=counts.red;let arr=active.filter(t=>status(t)!=="green");const sort=$("#sortUrgency").value;if(sort==="row")arr.sort((a,b)=>(db.rows.find(r=>r.id===a.rowId)?.name||"").localeCompare(db.rows.find(r=>r.id===b.rowId)?.name||"")||daysSince(b)-daysSince(a));else if(sort==="species")arr.sort((a,b)=>speciesFor(a).name.localeCompare(speciesFor(b).name));else arr.sort((a,b)=>({red:0,yellow:1}[status(a)]-{red:0,yellow:1}[status(b)])||daysSince(b)-daysSince(a));$("#attentionList").innerHTML=arr.length?arr.map(t=>`<div class="list-item"><span class="tree-dot dot-${status(t)}"></span><div class="item-main"><strong>${esc(treeTitle(t))}</strong><small>${esc(ageLabel(t))}</small></div><span class="pill ${status(t)}">${statusLabel(status(t))}</span></div>`).join(""):'<div class="empty">Todos los árboles están dentro de sus umbrales 🌱</div>';const ev=[...db.events].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);$("#recentList").innerHTML=ev.length?ev.map(e=>{const t=db.trees.find(t=>t.id===e.treeId);return `<div class="list-item"><span class="tree-dot dot-green"></span><div class="item-main"><strong>${esc(t?treeTitle(t):"Árbol eliminado")}</strong><small>${new Date(e.date+"T12:00:00").toLocaleDateString("es-ES")} · ${esc(e.notes||"Riego")}</small></div></div>`}).join(""):'<div class="empty">Todavía no hay riegos registrados.</div>'}
-function renderRows(){$("#rowList").innerHTML=db.rows.length?db.rows.map(r=>{const trees=db.trees.filter(t=>t.rowId===r.id&&t.active!==false).sort((a,b)=>a.number-b.number),done=trees.filter(t=>t.lastWatered===today()).length;return `<article class="row-card"><div class="row-card-head"><div><h3>${esc(r.name)}</h3><small class="muted">${esc(r.plot||"Sin parcela")} · ${esc(db.species.find(s=>s.id===r.speciesId)?.name||"Varias especies")} · ${trees.length} árboles</small></div><button class="btn secondary" data-edit-row="${r.id}">Editar</button></div><div class="progress"><span style="width:${trees.length?done/trees.length*100:0}%"></span></div><small class="muted">${done}/${trees.length} regados hoy</small><div class="tree-grid">${trees.map(t=>`<button class="tree-cell ${t.lastWatered===today()?"done":""}" data-tree="${t.id}" title="${esc(treeTitle(t))} · ${esc(ageLabel(t))}"><span class="num">${t.number}</span><small>${t.lastWatered===today()?"✓":daysSince(t)===Infinity?"—":daysSince(t)+"d"}</small></button>`).join("")}</div><div class="row-actions"><button class="btn primary" data-water-range="${r.id}">Regar intervalo</button><button class="btn secondary" data-water-all="${r.id}">Regar toda la hilera</button><button class="btn secondary" data-add-trees="${r.id}">＋ Añadir árboles</button></div></article>`}).join(""):'<div class="empty">Todavía no hay hileras. Crea la primera para empezar.</div>'}
-function renderSpecies(){$("#speciesList").innerHTML=db.species.map(s=>`<div class="list-item"><span class="tree-dot dot-green"></span><div class="item-main"><strong>${esc(s.name)}</strong><small>Amarillo: ${s.yellowDays} días · Rojo: ${s.redDays} días</small></div><button class="btn secondary" data-edit-species="${s.id}">Editar</button></div>`).join("")||'<div class="empty">Añade una especie.</div>'}
+
+function render(){
+  renderDashboard();
+  renderRows();
+  renderSpecies();
+  $("#treeCount").textContent=`${db.trees.filter(t=>t.active!==false).length} árboles`;
+  $("#storageStatus").textContent=`Guardado local automático · ${db.trees.length} árboles · última actualización ${new Date(db.updatedAt||Date.now()).toLocaleString("es-ES")}`;
+}
+
+function renderDashboard(){
+  const active=db.trees.filter(t=>t.active!==false),counts={green:0,yellow:0,red:0};
+  active.forEach(t=>counts[status(t)]++);
+  $("#greenCount").textContent=counts.green;
+  $("#yellowCount").textContent=counts.yellow;
+  $("#redCount").textContent=counts.red;
+  let arr=active.filter(t=>status(t)!=="green");
+  const sort=$("#sortUrgency").value;
+  if(sort==="row")arr.sort((a,b)=>(db.rows.find(r=>r.id===a.rowId)?.name||"").localeCompare(db.rows.find(r=>r.id===b.rowId)?.name||"")||daysSince(b)-daysSince(a));
+  else if(sort==="species")arr.sort((a,b)=>speciesFor(a).name.localeCompare(speciesFor(b).name));
+  else arr.sort((a,b)=>({red:0,yellow:1}[status(a)]-{red:0,yellow:1}[status(b)])||daysSince(b)-daysSince(a));
+  $("#attentionList").innerHTML=arr.length?arr.map(t=>`<div class="list-item"><span class="tree-dot dot-${status(t)}"></span><div class="item-main"><strong>${esc(treeTitle(t))}</strong><small>${esc(ageLabel(t))}</small></div><span class="pill ${status(t)}">${statusLabel(status(t))}</span></div>`).join(""):'<div class="empty">Todos los árboles están dentro de sus umbrales 🌱</div>';
+  const ev=[...db.events].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,6);
+  $("#recentList").innerHTML=ev.length?ev.map(e=>{const t=db.trees.find(t=>t.id===e.treeId);return `<div class="list-item"><span class="tree-dot dot-green"></span><div class="item-main"><strong>${esc(t?treeTitle(t):"Árbol eliminado")}</strong><small>${new Date(e.date+"T12:00:00").toLocaleDateString("es-ES")} · ${esc(e.notes||"Riego")}</small></div></div>`}).join(""):'<div class="empty">Todavía no hay riegos registrados.</div>';
+}
+
+function renderRows(){
+  $("#rowList").innerHTML=db.rows.length?db.rows.map(r=>{
+    const trees=db.trees.filter(t=>t.rowId===r.id&&t.active!==false).sort((a,b)=>a.number-b.number);
+    const done=trees.filter(t=>t.lastWatered===today()).length;
+    return `<article class="row-card">
+      <div class="row-card-head">
+        <div>
+          <h3>${esc(r.name)}</h3>
+          <small class="muted">${esc(r.plot||"Sin parcela")} · ${esc(db.species.find(s=>s.id===r.speciesId)?.name||"Varias especies")} · ${trees.length} árboles</small>
+        </div>
+        <button class="btn secondary" data-edit-row="${r.id}">Editar</button>
+      </div>
+      <div class="progress"><span style="width:${trees.length?done/trees.length*100:0}%"></span></div>
+      <small class="muted">${done}/${trees.length} regados hoy</small>
+      <div class="tree-grid">${trees.map(t=>`<button class="tree-cell ${t.lastWatered===today()?"done":""}" data-tree="${t.id}" title="${esc(treeTitle(t))} · ${esc(ageLabel(t))}"><span class="num">${t.number}</span><small>${t.lastWatered===today()?"✓":daysSince(t)===Infinity?"—":daysSince(t)+"d"}</small></button>`).join("")}</div>
+      <div class="row-actions">
+        <button class="btn primary" data-water-range="${r.id}">Regar intervalo</button>
+        <button class="btn secondary" data-water-all="${r.id}">Regar toda la hilera</button>
+        <button class="btn secondary" data-add-trees="${r.id}">＋ Añadir árboles</button>
+        <button class="btn secondary" data-delete-row="${r.id}">Eliminar hilera</button>
+      </div>
+    </article>`;
+  }).join(""):'<div class="empty">Todavía no hay hileras. Crea la primera para empezar.</div>';
+}
+
+function renderSpecies(){
+  $("#speciesList").innerHTML=db.species.map(s=>`<div class="list-item"><span class="tree-dot dot-green"></span><div class="item-main"><strong>${esc(s.name)}</strong><small>Amarillo: ${s.yellowDays} días · Rojo: ${s.redDays} días</small></div><button class="btn secondary" data-edit-species="${s.id}">Editar</button></div>`).join("")||'<div class="empty">Añade una especie.</div>';
+}
+
 function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function toast(s){const el=$("#toast");el.textContent=s;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2400)}
-function openDialog(title,html,onSave){$("#dialogTitle").textContent=title;$("#dialogBody").innerHTML=html;const dlg=$("#editDialog");const form=$("#editForm");form.onsubmit=e=>{if(e.submitter?.value==="save"){e.preventDefault();if(onSave()!==false)dlg.close()}};dlg.showModal()}
-function field(label,name,value,type="text",extra=""){return `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(value)}" ${extra} required></label>`}
-function selectSpecies(value){return `<label class="field">Especie<select name="speciesId">${db.species.map(s=>`<option value="${s.id}" ${s.id===value?"selected":""}>${esc(s.name)}</option>`).join("")}</select></label>`}
-function addRow(){if(!db.species.length){toast("Primero crea una especie");return}openDialog("Nueva hilera",field("Nombre de la hilera","name","Línea "+String(db.rows.length+1).padStart(2,"0"))+field("Parcela","plot","Parcela 1")+selectSpecies(db.species[0].id)+field("Número de árboles","treeCount",10,"number",'min="1" max="1000"'),()=>{const f=new FormData($("#editForm")),r={id:uid(),name:f.get("name"),plot:f.get("plot"),speciesId:f.get("speciesId"),treeCount:Number(f.get("treeCount"))};db.rows.push(r);for(let i=1;i<=r.treeCount;i++)db.trees.push({id:uid(),rowId:r.id,number:i,name:db.species.find(s=>s.id===r.speciesId).name+" "+i,speciesId:r.speciesId,lastWatered:null,yellowDays:null,redDays:null,active:true});save();toast("Hilera creada")})}
-function editRow(id){const r=db.rows.find(x=>x.id===id);if(!r)return;openDialog("Editar hilera",field("Nombre","name",r.name)+field("Parcela","plot",r.plot)+selectSpecies(r.speciesId),()=>{const f=new FormData($("#editForm"));r.name=f.get("name");r.plot=f.get("plot");r.speciesId=f.get("speciesId");db.trees.filter(t=>t.rowId===id).forEach(t=>{if(t.speciesId===r.speciesId)t.speciesId=r.speciesId});save();toast("Hilera actualizada")})}
-function addSpecies(){openDialog("Nueva especie",field("Nombre","name","Naranjo")+field("Aviso amarillo (días)","yellowDays",5,"number",'min="1"')+field("Aviso rojo (días)","redDays",8,"number",'min="2"'),()=>{const f=new FormData($("#editForm")),y=Number(f.get("yellowDays")),r=Number(f.get("redDays"));if(r<=y){toast("El umbral rojo debe ser mayor que el amarillo");return false}db.species.push({id:uid(),name:f.get("name"),yellowDays:y,redDays:r});save();toast("Especie creada")})}
-function editSpecies(id){const s=db.species.find(x=>x.id===id);openDialog("Editar "+s.name,field("Nombre","name",s.name)+field("Aviso amarillo (días)","yellowDays",s.yellowDays,"number",'min="1"')+field("Aviso rojo (días)","redDays",s.redDays,"number",'min="2"'),()=>{const f=new FormData($("#editForm")),y=Number(f.get("yellowDays")),r=Number(f.get("redDays"));if(r<=y){toast("El umbral rojo debe ser mayor que el amarillo");return false}s.name=f.get("name");s.yellowDays=y;s.redDays=r;save();toast("Umbrales actualizados")})}
-function waterTrees(trees,notes="Riego manual"){const date=today();trees.forEach(t=>{t.lastWatered=date;db.events.push({id:uid(),treeId:t.id,date,notes})});save();toast(`${trees.length} árbol(es) registrados como regados`)}
-function waterRange(rowId){const trees=db.trees.filter(t=>t.rowId===rowId&&t.active!==false).sort((a,b)=>a.number-b.number);if(!trees.length)return;openDialog("Regar intervalo",field("Desde el árbol","from",1,"number",'min="1" max="'+trees.length+'"')+field("Hasta el árbol","to",trees.length,"number",'min="1" max="'+trees.length+'"')+field("Nota (opcional)","notes","Riego manual"),()=>{const f=new FormData($("#editForm")),a=Number(f.get("from")),b=Number(f.get("to"));if(a>b||a<1||b>trees.length){toast("Intervalo no válido");return false}waterTrees(trees.filter(t=>t.number>=a&&t.number<=b),f.get("notes")||"Riego manual")})}
-function editTree(id){const t=db.trees.find(x=>x.id===id);if(!t)return;openDialog(treeTitle(t),`<p class="muted">${esc(ageLabel(t))} · ${statusLabel(status(t))}</p>${field("Nombre","name",t.name)}${selectSpecies(t.speciesId)}${field("Fecha del último riego","lastWatered",t.lastWatered||"","date")}<p class="small">Deja la fecha vacía si todavía no se ha regado.</p><button type="button" id="historyBtn" class="btn secondary">Ver historial de este árbol</button>`,()=>{const f=new FormData($("#editForm"));t.name=f.get("name");t.speciesId=f.get("speciesId");t.lastWatered=f.get("lastWatered")||null;if(t.lastWatered)db.events.push({id:uid(),treeId:t.id,date:t.lastWatered,notes:"Fecha ajustada manualmente"});save();toast("Árbol actualizado")});$("#historyBtn").onclick=()=>{const ev=db.events.filter(e=>e.treeId===id).sort((a,b)=>b.date.localeCompare(a.date));toast(ev.length?ev.map(e=>new Date(e.date+"T12:00:00").toLocaleDateString("es-ES")).join(" · "):"Sin historial")}}
-async function exportJSON(){const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=`sintropia-riego-${today()}.json`;a.click();URL.revokeObjectURL(url);toast("Copia JSON descargada")}
-async function linkJSON(){if(!window.showSaveFilePicker){toast("Tu navegador no admite vincular archivos. Usa Descargar copia JSON.");return}try{linkedHandle=await showSaveFilePicker({suggestedName:"sintropia-riego.json",types:[{description:"Archivo JSON",accept:{"application/json":[".json"]}}]});$("#fileStatus").textContent="Archivo vinculado: "+linkedHandle.name;$("#saveLinkedBtn").disabled=false;await saveLinked()}catch(e){if(e.name!=="AbortError")toast("No se pudo vincular el archivo")}}
-async function saveLinked(){if(!linkedHandle)return;try{const w=await linkedHandle.createWritable();await w.write(JSON.stringify(db,null,2));await w.close();toast("Archivo JSON actualizado")}catch(e){toast("No se pudo guardar. Comprueba los permisos del archivo.")}}
-async function importJSON(file){try{const x=JSON.parse(await file.text());if(x.version!==1||!Array.isArray(x.rows)||!Array.isArray(x.trees)||!Array.isArray(x.species)||!Array.isArray(x.events))throw Error("Formato no reconocido");if(!confirm("Importar sustituirá los datos actuales de esta aplicación. ¿Continuar?"))return;db=x;save();toast("Datos importados correctamente")}catch(e){toast("JSON inválido o incompatible: "+e.message)}}
-document.addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.tab){document.querySelectorAll(".tab,.panel").forEach(x=>x.classList.remove("active"));b.classList.add("active");$("#"+b.dataset.tab).classList.add("active")}if(b.id==="addRowBtn")addRow();if(b.id==="addSpeciesBtn")addSpecies();if(b.dataset.editRow)editRow(b.dataset.editRow);if(b.dataset.editSpecies)editSpecies(b.dataset.editSpecies);if(b.dataset.tree)editTree(b.dataset.tree);if(b.dataset.waterRange)waterRange(b.dataset.waterRange);if(b.dataset.waterAll){const ts=db.trees.filter(t=>t.rowId===b.dataset.waterAll&&t.active!==false);if(confirm(`¿Registrar riego para los ${ts.length} árboles de esta hilera?`))waterTrees(ts)}if(b.dataset.addTrees){const row=db.rows.find(r=>r.id===b.dataset.addTrees),max=Math.max(0,...db.trees.filter(t=>t.rowId===row.id).map(t=>t.number));openDialog("Añadir árboles",field("Cantidad de árboles nuevos","count",1,"number",'min="1" max="500"'),()=>{const n=Number(new FormData($("#editForm")).get("count"));for(let i=1;i<=n;i++)db.trees.push({id:uid(),rowId:row.id,number:max+i,name:(db.species.find(s=>s.id===row.speciesId)?.name||"Árbol")+" "+(max+i),speciesId:row.speciesId,lastWatered:null,yellowDays:null,redDays:null,active:true});row.treeCount+=n;save();toast(`${n} árboles añadidos`)})}});
-$("#sortUrgency").onchange=renderDashboard;$("#exportBtn").onclick=exportJSON;$("#linkJsonBtn").onclick=linkJSON;$("#saveLinkedBtn").onclick=saveLinked;$("#importFile").onchange=e=>{if(e.target.files[0])importJSON(e.target.files[0]);e.target.value=""};$("#resetBtn").onclick=()=>{if(confirm("¿Restablecer todos los datos con el ejemplo de 30 olivos? Se perderán los datos actuales.")){db=seed();save();toast("Datos de ejemplo restaurados")}};
-window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstall=e;$("#installBtn").classList.remove("hidden")});$("#installBtn").onclick=async()=>{if(!deferredInstall)return;deferredInstall.prompt();deferredInstall=null;$("#installBtn").classList.add("hidden")};
-if("serviceWorker" in navigator && location.protocol!=="file:")window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
+
+function openDialog(title,html,onSave){
+  $("#dialogTitle").textContent=title;
+  $("#dialogBody").innerHTML=html;
+  const dlg=$("#editDialog");
+  const form=$("#editForm");
+  form.onsubmit=e=>{
+    if(e.submitter?.value==="save"){
+      e.preventDefault();
+      if(onSave()!==false)dlg.close();
+    }
+  };
+  dlg.showModal();
+}
+
+function field(label,name,value,type="text",extra=""){
+  return `<label class="field">${label}<input name="${name}" type="${type}" value="${esc(value)}" ${extra} required></label>`;
+}
+
+function selectSpecies(value){
+  return `<label class="field">Especie<select name="speciesId">${db.species.map(s=>`<option value="${s.id}" ${s.id===value?"selected":""}>${esc(s.name)}</option>`).join("")}</select></label>`;
+}
+
+function addRow(){
+  if(!db.species.length){toast("Primero crea una especie");return}
+  openDialog("Nueva hilera",
+    field("Nombre de la hilera","name","Línea "+String(db.rows.length+1).padStart(2,"0"))+
+    field("Parcela","plot","Parcela 1")+
+    selectSpecies(db.species[0].id)+
+    field("Número de árboles","treeCount",10,"number",'min="1" max="1000"'),
+    ()=>{
+      const f=new FormData($("#editForm"));
+      const r={id:uid(),name:f.get("name"),plot:f.get("plot"),speciesId:f.get("speciesId"),treeCount:Number(f.get("treeCount"))};
+      db.rows.push(r);
+      for(let i=1;i<=r.treeCount;i++)db.trees.push({id:uid(),rowId:r.id,number:i,name:db.species.find(s=>s.id===r.speciesId).name+" "+i,speciesId:r.speciesId,lastWatered:null,yellowDays:null,redDays:null,active:true});
+      save();
+      toast("Hilera creada");
+    }
+  );
+}
+
+function editRow(id){
+  const r=db.rows.find(x=>x.id===id);
+  if(!r)return;
+  openDialog("Editar hilera",
+    field("Nombre","name",r.name)+
+    field("Parcela","plot",r.plot)+
+    selectSpecies(r.speciesId),
+    ()=>{
+      const f=new FormData($("#editForm"));
+      r.name=f.get("name");
+      r.plot=f.get("plot");
+      r.speciesId=f.get("speciesId");
+      db.trees.filter(t=>t.rowId===id).forEach(t=>{if(t.speciesId===r.speciesId)t.speciesId=r.speciesId});
+      save();
+      toast("Hilera actualizada");
+    }
+  );
+}
+
+function addSpecies(){
+  openDialog("Nueva especie",
+    field("Nombre","name","Naranjo")+
+    field("Aviso amarillo (días)","yellowDays",5,"number",'min="1"')+
+    field("Aviso rojo (días)","redDays",8,"number",'min="2"'),
+    ()=>{
+      const f=new FormData($("#editForm")),y=Number(f.get("yellowDays")),r=Number(f.get("redDays"));
+      if(r<=y){toast("El umbral rojo debe ser mayor que el amarillo");return false}
+      db.species.push({id:uid(),name:f.get("name"),yellowDays:y,redDays:r});
+      save();
+      toast("Especie creada");
+    }
+  );
+}
+
+function editSpecies(id){
+  const s=db.species.find(x=>x.id===id);
+  openDialog("Editar "+s.name,
+    field("Nombre","name",s.name)+
+    field("Aviso amarillo (días)","yellowDays",s.yellowDays,"number",'min="1"')+
+    field("Aviso rojo (días)","redDays",s.redDays,"number",'min="2"'),
+    ()=>{
+      const f=new FormData($("#editForm")),y=Number(f.get("yellowDays")),r=Number(f.get("redDays"));
+      if(r<=y){toast("El umbral rojo debe ser mayor que el amarillo");return false}
+      s.name=f.get("name");
+      s.yellowDays=y;
+      s.redDays=r;
+      save();
+      toast("Umbrales actualizados");
+    }
+  );
+}
+
+function waterTrees(trees,notes="Riego manual"){
+  const date=today();
+  trees.forEach(t=>{
+    t.lastWatered=date;
+    db.events.push({id:uid(),treeId:t.id,date,notes});
+  });
+  save();
+  toast(`${trees.length} árbol(es) registrados como regados`);
+}
+
+function waterRange(rowId){
+  const trees=db.trees.filter(t=>t.rowId===rowId&&t.active!==false).sort((a,b)=>a.number-b.number);
+  if(!trees.length)return;
+  openDialog("Regar intervalo",
+    field("Desde el árbol","from",1,"number",'min="1" max="'+trees.length+'"')+
+    field("Hasta el árbol","to",trees.length,"number",'min="1" max="'+trees.length+'"')+
+    field("Nota (opcional)","notes","Riego manual"),
+    ()=>{
+      const f=new FormData($("#editForm")),a=Number(f.get("from")),b=Number(f.get("to"));
+      if(a>b||a<1||b>trees.length){toast("Intervalo no válido");return false}
+      waterTrees(trees.filter(t=>t.number>=a&&t.number<=b),f.get("notes")||"Riego manual");
+    }
+  );
+}
+
+function editTree(id){
+  const t=db.trees.find(x=>x.id===id);
+  if(!t)return;
+
+  openDialog(treeTitle(t),
+    `<p class="muted">${esc(ageLabel(t))} · ${statusLabel(status(t))}</p>
+    ${field("Nombre","name",t.name)}
+    ${selectSpecies(t.speciesId)}
+    ${field("Fecha del último riego","lastWatered",t.lastWatered||"","date")}
+    <p class="small">Deja la fecha vacía si todavía no se ha regado.</p>
+    <div class="row-actions">
+      <button type="button" id="historyBtn" class="btn secondary">Ver historial de este árbol</button>
+      <button type="button" id="deleteTreeBtn" class="btn secondary">Eliminar árbol</button>
+    </div>`,
+    ()=>{
+      const f=new FormData($("#editForm"));
+      t.name=f.get("name");
+      t.speciesId=f.get("speciesId");
+      t.lastWatered=f.get("lastWatered")||null;
+      if(t.lastWatered)db.events.push({id:uid(),treeId:t.id,date:t.lastWatered,notes:"Fecha ajustada manualmente"});
+      save();
+      toast("Árbol actualizado");
+    }
+  );
+
+  $("#historyBtn").onclick=()=>{
+    const ev=db.events.filter(e=>e.treeId===id).sort((a,b)=>b.date.localeCompare(a.date));
+    toast(ev.length?ev.map(e=>new Date(e.date+"T12:00:00").toLocaleDateString("es-ES")).join(" · "):"Sin historial");
+  };
+
+  $("#deleteTreeBtn").onclick=()=>{
+    if(!confirm(`¿Eliminar "${t.name||"este árbol"}" y su historial de riegos? Esta acción no se puede deshacer.`))return;
+
+    db.trees=db.trees.filter(x=>x.id!==id);
+    db.events=db.events.filter(x=>x.treeId!==id);
+
+    db.rows.forEach(r=>{
+      const siblings=db.trees.filter(x=>x.rowId===r.id).sort((a,b)=>a.number-b.number);
+      siblings.forEach((x,i)=>x.number=i+1);
+      r.treeCount=siblings.length;
+    });
+
+    save();
+    $("#editDialog").close();
+    toast("Árbol eliminado");
+  };
+}
+
+async function exportJSON(){
+  const blob=new Blob([JSON.stringify(db,null,2)],{type:"application/json"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`sintropia-riego-${today()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast("Copia JSON descargada");
+}
+
+async function linkJSON(){
+  if(!window.showSaveFilePicker){
+    toast("Tu navegador no admite vincular archivos. Usa Descargar copia JSON.");
+    return;
+  }
+  try{
+    linkedHandle=await showSaveFilePicker({
+      suggestedName:"sintropia-riego.json",
+      types:[{description:"Archivo JSON",accept:{"application/json":[".json"]}}]
+    });
+    $("#fileStatus").textContent="Archivo vinculado: "+linkedHandle.name;
+    $("#saveLinkedBtn").disabled=false;
+    await saveLinked();
+  }catch(e){
+    if(e.name!=="AbortError")toast("No se pudo vincular el archivo");
+  }
+}
+
+async function saveLinked(){
+  if(!linkedHandle)return;
+  try{
+    const w=await linkedHandle.createWritable();
+    await w.write(JSON.stringify(db,null,2));
+    await w.close();
+    toast("Archivo JSON actualizado");
+  }catch(e){
+    toast("No se pudo guardar. Comprueba los permisos del archivo.");
+  }
+}
+
+async function importJSON(file){
+  try{
+    const x=JSON.parse(await file.text());
+    if(x.version!==1||!Array.isArray(x.rows)||!Array.isArray(x.trees)||!Array.isArray(x.species)||!Array.isArray(x.events))throw Error("Formato no reconocido");
+    if(!confirm("Importar sustituirá los datos actuales de esta aplicación. ¿Continuar?"))return;
+    db=x;
+    save();
+    toast("Datos importados correctamente");
+  }catch(e){
+    toast("JSON inválido o incompatible: "+e.message);
+  }
+}
+
+document.addEventListener("click",e=>{
+  const b=e.target.closest("button");
+  if(!b)return;
+
+  if(b.dataset.tab){
+    document.querySelectorAll(".tab,.panel").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    $("#"+b.dataset.tab).classList.add("active");
+  }
+
+  if(b.id==="addRowBtn")addRow();
+  if(b.id==="addSpeciesBtn")addSpecies();
+  if(b.dataset.editRow)editRow(b.dataset.editRow);
+  if(b.dataset.editSpecies)editSpecies(b.dataset.editSpecies);
+  if(b.dataset.tree)editTree(b.dataset.tree);
+  if(b.dataset.waterRange)waterRange(b.dataset.waterRange);
+
+  if(b.dataset.waterAll){
+    const ts=db.trees.filter(t=>t.rowId===b.dataset.waterAll&&t.active!==false);
+    if(confirm(`¿Registrar riego para los ${ts.length} árboles de esta hilera?`))waterTrees(ts);
+  }
+
+  if(b.dataset.addTrees){
+    const row=db.rows.find(r=>r.id===b.dataset.addTrees);
+    const max=Math.max(0,...db.trees.filter(t=>t.rowId===row.id).map(t=>t.number));
+
+    openDialog("Añadir árboles",
+      field("Cantidad de árboles nuevos","count",1,"number",'min="1" max="500"'),
+      ()=>{
+        const n=Number(new FormData($("#editForm")).get("count"));
+        for(let i=1;i<=n;i++)db.trees.push({
+          id:uid(),
+          rowId:row.id,
+          number:max+i,
+          name:(db.species.find(s=>s.id===row.speciesId)?.name||"Árbol")+" "+(max+i),
+          speciesId:row.speciesId,
+          lastWatered:null,
+          yellowDays:null,
+          redDays:null,
+          active:true
+        });
+        row.treeCount+=n;
+        save();
+        toast(`${n} árboles añadidos`);
+      }
+    );
+  }
+
+  if(b.dataset.deleteRow){
+    const id=b.dataset.deleteRow;
+    const row=db.rows.find(r=>r.id===id);
+    if(!row)return;
+
+    const trees=db.trees.filter(t=>t.rowId===id);
+    const count=trees.length;
+
+    if(confirm(`¿Eliminar la hilera "${row.name}" y sus ${count} árboles, incluidos sus historiales? Esta acción no se puede deshacer.`)){
+      const ids=trees.map(t=>t.id);
+      db.rows=db.rows.filter(r=>r.id!==id);
+      db.trees=db.trees.filter(t=>t.rowId!==id);
+      db.events=db.events.filter(e=>!ids.includes(e.treeId));
+      save();
+      toast("Hilera eliminada");
+    }
+  }
+});
+
+$("#sortUrgency").onchange=renderDashboard;
+$("#exportBtn").onclick=exportJSON;
+$("#linkJsonBtn").onclick=linkJSON;
+$("#saveLinkedBtn").onclick=saveLinked;
+
+$("#importFile").onchange=e=>{
+  if(e.target.files[0])importJSON(e.target.files[0]);
+  e.target.value="";
+};
+
+$("#resetBtn").onclick=()=>{
+  if(confirm("¿Restablecer todos los datos con el ejemplo de 30 olivos? Se perderán los datos actuales.")){
+    db=seed();
+    save();
+    toast("Datos de ejemplo restaurados");
+  }
+};
+
+window.addEventListener("beforeinstallprompt",e=>{
+  e.preventDefault();
+  deferredInstall=e;
+  $("#installBtn").classList.remove("hidden");
+});
+
+$("#installBtn").onclick=async()=>{
+  if(!deferredInstall)return;
+  deferredInstall.prompt();
+  deferredInstall=null;
+  $("#installBtn").classList.add("hidden");
+};
+
+if("serviceWorker" in navigator && location.protocol!=="file:"){
+  window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}));
+}
+
 render();
