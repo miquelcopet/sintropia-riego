@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#183b2b">
+<meta name="description" content="Control local de riego por árbol y por hilera.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+<title>Sintropia Riego</title>
+</head>
+<body>
+<header class="topbar">
+  <div><div class="eyebrow">GESTIÓN AGROFORESTAL</div><h1>🌱 Sintropia Riego</h1></div>
+  <button id="installBtn" class="btn ghost hidden">Instalar app</button>
+</header>
+<main>
+  <nav class="tabs" aria-label="Navegación">
+    <button class="tab active" data-tab="dashboard">Resumen</button>
+    <button class="tab" data-tab="rows">Hileras</button>
+    <button class="tab" data-tab="species">Especies</button>
+    <button class="tab" data-tab="data">Datos</button>
+  </nav>
+  <section id="dashboard" class="panel active">
+    <div class="section-head"><div><p class="eyebrow">VISTA GENERAL</p><h2>Estado de la finca</h2></div><span id="treeCount" class="muted"></span></div>
+    <div class="stats">
+      <article class="stat green"><strong id="greenCount">0</strong><span>En verde</span></article>
+      <article class="stat yellow"><strong id="yellowCount">0</strong><span>Atención</span></article>
+      <article class="stat red"><strong id="redCount">0</strong><span>Urgentes</span></article>
+    </div>
+    <div class="card"><div class="section-head"><h3>Árboles que necesitan atención</h3><select id="sortUrgency"><option value="urgency">Más urgentes primero</option><option value="row">Por hilera</option><option value="species">Por especie</option></select></div><div id="attentionList" class="list"></div></div>
+    <div class="card"><h3>Actividad reciente</h3><div id="recentList" class="list"></div></div>
+  </section>
+  <section id="rows" class="panel">
+    <div class="section-head"><div><p class="eyebrow">ESTRUCTURA DE LA FINCA</p><h2>Parcelas e hileras</h2></div><button id="addRowBtn" class="btn primary">＋ Nueva hilera</button></div>
+    <div id="rowList" class="row-list"></div>
+  </section>
+  <section id="species" class="panel">
+    <div class="section-head"><div><p class="eyebrow">CONFIGURACIÓN</p><h2>Especies y umbrales</h2></div><button id="addSpeciesBtn" class="btn primary">＋ Especie</button></div>
+    <p class="muted">Los días son umbrales de aviso configurables, no una recomendación agronómica automática.</p>
+    <div id="speciesList" class="list"></div>
+  </section>
+  <section id="data" class="panel">
+    <p class="eyebrow">COPIAS Y PRIVACIDAD</p><h2>Tus datos, en tu dispositivo</h2>
+    <div class="card">
+      <h3>Archivo JSON</h3>
+      <p>La aplicación guarda automáticamente en este navegador. Además, puedes descargar una copia JSON o recuperar una copia anterior.</p>
+      <div class="button-stack">
+        <button id="exportBtn" class="btn primary">Descargar copia JSON</button>
+        <label class="btn secondary file-label">Importar archivo JSON<input id="importFile" type="file" accept="application/json,.json" hidden></label>
+        <button id="linkJsonBtn" class="btn secondary">Vincular archivo JSON</button>
+        <button id="saveLinkedBtn" class="btn secondary" disabled>Guardar en archivo vinculado</button>
+      </div>
+      <p id="fileStatus" class="small muted">No hay ningún archivo JSON vinculado.</p>
+    </div>
+    <div class="card">
+      <h3>Almacenamiento</h3><p id="storageStatus" class="small muted"></p>
+      <button id="resetBtn" class="btn danger-outline">Restablecer datos de ejemplo</button>
+    </div>
+    <p class="small muted">No hay servidor ni sincronización entre dispositivos. Conserva copias JSON periódicas: borrar los datos del navegador puede eliminar la información local.</p>
+  </section>
+</main>
+<dialog id="editDialog">
+  <form method="dialog" id="editForm">
+    <div class="dialog-head"><h2 id="dialogTitle">Editar</h2><button class="icon-btn" value="cancel" aria-label="Cerrar">✕</button></div>
+    <div id="dialogBody"></div>
+    <div class="dialog-actions"><button class="btn secondary" value="cancel">Cancelar</button><button id="dialogSave" class="btn primary" value="save">Guardar</button></div>
+  </form>
+</dialog>
+<div id="toast" role="status" class="toast"></div>
+<script src="app.js"></script>
+</body></html>
